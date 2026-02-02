@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 try:
     import pandas as pd
     import pandas_ta as ta
-    import psycopg2
+    import psycopg
 except ImportError as e:
     print(json.dumps({
         'status': 'error',
@@ -35,7 +35,7 @@ def get_database_connection():
     db_url = os.getenv('DATABASE_URL')
     if not db_url:
         raise ValueError("DATABASE_URL environment variable is not set")
-    return psycopg2.connect(db_url)
+    return psycopg.connect(db_url)
 
 
 def fetch_market_data(ticker: str, days: int = 200) -> pd.DataFrame:
@@ -60,13 +60,16 @@ def fetch_market_data(ticker: str, days: int = 200) -> pd.DataFrame:
     cutoff_date = datetime.now() - timedelta(days=days)
     
     try:
-        df = pd.read_sql_query(
-            query, 
-            conn, 
-            params=(ticker, cutoff_date),
-            parse_dates=['timestamp']
-        )
-        return df
+        with conn.cursor() as cur:
+            cur.execute(query, (ticker, cutoff_date))
+            rows = cur.fetchall()
+            
+            if not rows:
+                return pd.DataFrame()
+            
+            df = pd.DataFrame(rows, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+            df['timestamp'] = pd.to_datetime(df['timestamp'])
+            return df
     finally:
         conn.close()
 
@@ -135,57 +138,45 @@ def store_indicators(ticker: str, df: pd.DataFrame) -> bool:
     # Get the most recent row with indicators
     latest = df.iloc[-1]
     
-    conn = None
-    cur = None
-    
     try:
-        conn = get_database_connection()
-        cur = conn.cursor()
-        
-        insert_query = """
-            INSERT INTO technical_indicators 
-            (ticker, timestamp, rsi_14, sma_50, sma_200, macd, macd_signal, atr_14, volume_avg_20, created_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """
-        
-        # Helper to safely convert values
-        def safe_float(val):
-            if pd.isna(val):
-                return None
-            return float(val)
-        
-        def safe_int(val):
-            if pd.isna(val):
-                return None
-            return int(val)
-        
-        cur.execute(insert_query, (
-            ticker,
-            latest['timestamp'] if pd.notna(latest.get('timestamp')) else datetime.now(),
-            safe_float(latest.get('rsi_14')),
-            safe_float(latest.get('sma_50')),
-            safe_float(latest.get('sma_200')),
-            safe_float(latest.get('macd')),
-            safe_float(latest.get('macd_signal')),
-            safe_float(latest.get('atr_14')),
-            safe_int(latest.get('volume_avg_20')),
-            datetime.now()
-        ))
-        
-        conn.commit()
-        return True
+        with get_database_connection() as conn:
+            with conn.cursor() as cur:
+                insert_query = """
+                    INSERT INTO technical_indicators 
+                    (ticker, timestamp, rsi_14, sma_50, sma_200, macd, macd_signal, atr_14, volume_avg_20, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """
+                
+                # Helper to safely convert values
+                def safe_float(val):
+                    if pd.isna(val):
+                        return None
+                    return float(val)
+                
+                def safe_int(val):
+                    if pd.isna(val):
+                        return None
+                    return int(val)
+                
+                cur.execute(insert_query, (
+                    ticker,
+                    latest['timestamp'] if pd.notna(latest.get('timestamp')) else datetime.now(),
+                    safe_float(latest.get('rsi_14')),
+                    safe_float(latest.get('sma_50')),
+                    safe_float(latest.get('sma_200')),
+                    safe_float(latest.get('macd')),
+                    safe_float(latest.get('macd_signal')),
+                    safe_float(latest.get('atr_14')),
+                    safe_int(latest.get('volume_avg_20')),
+                    datetime.now()
+                ))
+                
+                conn.commit()
+                return True
         
     except Exception as e:
         print(f"Error storing indicators for {ticker}: {e}", file=sys.stderr)
-        if conn:
-            conn.rollback()
         return False
-        
-    finally:
-        if cur:
-            cur.close()
-        if conn:
-            conn.close()
 
 
 def get_ticker_list() -> list[str]:

@@ -193,22 +193,81 @@ func (e *Engine) getTrackedTickers(ctx context.Context) ([]string, error) {
 
 // getTickerConfidenceScore retrieves or calculates the confidence score for a ticker
 func (e *Engine) getTickerConfidenceScore(ctx context.Context, ticker string) (*analysis.ConfidenceScore, error) {
-	// In full implementation, this would:
 	// 1. Fetch recent creator sentiments for the ticker
-	// 2. Fetch technical indicators
-	// 3. Calculate confidence using analysis.CalculateConfidence
+	creatorSentiments := make(map[string]string)
+	rows, err := e.db.QueryContext(ctx, `
+		SELECT DISTINCT creator_name, sentiment
+		FROM creator_content
+		WHERE $1 = ANY(mentioned_tickers)
+			AND sentiment IS NOT NULL
+			AND posted_at >= NOW() - INTERVAL '7 days'
+	`, ticker)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var creator, sentiment string
+			if rows.Scan(&creator, &sentiment) == nil {
+				creatorSentiments[creator] = sentiment
+			}
+		}
+	}
 
-	// For now, return a placeholder score
-	// TODO: Implement full confidence calculation in Phase 2/3
-	return &analysis.ConfidenceScore{
-		Overall:            0.75,
-		CreatorConsensus:   0.80,
-		TechnicalAlignment: 0.70,
-		VolumeConfirmation: 0.65,
-		HistoricalAccuracy: 0.75,
-		Direction:          "bullish",
-		Breakdown:          "Creator: 80% | Technical: 70% | Volume: 65% | History: 75%",
-	}, nil
+	// 2. Fetch technical indicators
+	var rsi, sma50, sma200, macd, macdSignal sql.NullFloat64
+	var currentPrice float64
+	var currentVolume, avgVolume sql.NullInt64
+
+	e.db.QueryRowContext(ctx, `
+		SELECT rsi_14, sma_50, sma_200, macd, macd_signal
+		FROM technical_indicators
+		WHERE ticker = $1
+		ORDER BY timestamp DESC LIMIT 1
+	`, ticker).Scan(&rsi, &sma50, &sma200, &macd, &macdSignal)
+
+	e.db.QueryRowContext(ctx, `
+		SELECT close, volume FROM market_data
+		WHERE ticker = $1
+		ORDER BY timestamp DESC LIMIT 1
+	`, ticker).Scan(&currentPrice, &currentVolume)
+
+	e.db.QueryRowContext(ctx, `
+		SELECT volume_avg_20 FROM technical_indicators
+		WHERE ticker = $1 AND volume_avg_20 IS NOT NULL
+		ORDER BY timestamp DESC LIMIT 1
+	`, ticker).Scan(&avgVolume)
+
+	// 3. Generate technical signals
+	var technicalSignals []string
+	if rsi.Valid {
+		technicalSignals = analysis.GetTechnicalSignals(
+			rsi.Float64,
+			sma50.Float64,
+			sma200.Float64,
+			macd.Float64,
+			macdSignal.Float64,
+			currentPrice,
+		)
+	}
+
+	// 4. Get creator accuracy rates
+	var creators []string
+	for creator := range creatorSentiments {
+		creators = append(creators, creator)
+	}
+	accuracyRates, _ := analysis.FetchCreatorAccuracy(ctx, e.db, creators)
+
+	// 5. Build inputs and calculate confidence
+	inputs := analysis.ConfidenceInputs{
+		Ticker:               ticker,
+		CreatorSentiments:    creatorSentiments,
+		TechnicalSignals:     technicalSignals,
+		CurrentVolume:        currentVolume.Int64,
+		AvgVolume:            avgVolume.Int64,
+		CreatorAccuracyRates: accuracyRates,
+	}
+
+	score := analysis.CalculateConfidence(inputs, analysis.DefaultWeights())
+	return &score, nil
 }
 
 // AllocationResult holds the calculated allocation

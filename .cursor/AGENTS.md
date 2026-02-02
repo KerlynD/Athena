@@ -455,6 +455,73 @@ RETURNS TABLE (
 
 ---
 
+#### ❌ Mistake 14: Used psycopg2 and pandas 2.1.4 with Python 3.13
+**Date**: 2026-02-01  
+**Impact**: pip install fails - no prebuilt wheels for Python 3.13, source compilation fails with C API changes  
+**Solution**: 
+1. Switch from `psycopg2-binary` to `psycopg[binary]>=3.1.0` (the newer PostgreSQL adapter)
+2. Use `pandas>=2.2.0` which has Python 3.13 wheels
+3. Updated all Python scripts to use `psycopg` API (slightly different from psycopg2)
+**Prevention**: When specifying Python dependencies, use flexible version constraints (`>=`) rather than pinned versions. Python 3.13 is very new - many packages don't have wheels yet. Consider using Python 3.11 or 3.12 for better compatibility.
+
+---
+
+#### ❌ Mistake 15: Python script print statements broke JSON parsing in Go
+**Date**: 2026-02-01  
+**Impact**: Go orchestrator couldn't parse portfolio JSON because Python printed status messages to stdout mixed with JSON  
+**Solution**: 
+1. Use `print(..., file=sys.stderr)` for all status/log messages
+2. Only print the final JSON result to stdout
+3. Created `log()` helper function to ensure stderr usage
+**Prevention**: When Python scripts output JSON for Go to parse, ALL non-JSON output MUST go to stderr
+
+---
+
+#### ❌ Mistake 16: Robinhood fetched individual account instead of Roth IRA
+**Date**: 2026-02-01  
+**Impact**: Portfolio data showed wrong account holdings  
+**Solution**: 
+1. Added account type parameter (--account-type roth|individual)
+2. Use `get_all_positions()` and filter by account type
+3. Added `ROBINHOOD_ACCOUNT_TYPE` environment variable
+**Prevention**: Always verify which account type is being fetched when dealing with brokerage APIs that support multiple accounts
+
+---
+
+#### ❌ Mistake 17: Recommendations used hardcoded "core holdings" instead of Claude
+**Date**: 2026-02-01  
+**Impact**: Recommendations ignored all context and just suggested SPY/QQQ/VOO/VTI with low confidence  
+**Solution**: 
+1. Created `ClaudeEngine` that gathers ALL context (portfolio, market data, technicals, creator content)
+2. Sends comprehensive prompt to Claude with full investment context
+3. Claude returns intelligent recommendations for ANY ticker, not just preset ones
+**Prevention**: When using LLMs for recommendations, feed them ALL available context and let them make intelligent decisions
+
+---
+
+#### ❌ Mistake 18: Signals table market_regime column too small
+**Date**: 2026-02-01  
+**Impact**: Claude's market assessment couldn't be stored: `pq: value too long for type character varying(50)`  
+**Solution**: 
+1. Created migration `scripts/migrate_001_fix_columns.sql` to alter column to TEXT
+2. Run: `ALTER TABLE signals ALTER COLUMN market_regime TYPE TEXT;`
+**Prevention**: Use TEXT instead of VARCHAR for LLM-generated content that may vary in length
+
+---
+
+#### ❌ Mistake 19: Robinhood script failed without useful error
+**Date**: 2026-02-01  
+**Impact**: Python script crashed with exit status 1, no useful error shown  
+**Root Cause**: The `load_phoenix_account()` function may not work for all account types, causing silent failures  
+**Solution**: 
+1. Rewrote script to use `build_holdings()` as primary method (most reliable)
+2. Added `--debug` flag for detailed logging
+3. Changed default account type from 'roth' to 'all' to get everything first
+4. Added traceback logging for all exceptions
+**Prevention**: Always have fallback methods and comprehensive error logging in API integration scripts
+
+---
+
 ### Architecture Decisions
 
 #### ✅ Decision 1: Kept Python for Robinhood instead of porting to Go

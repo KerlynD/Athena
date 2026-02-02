@@ -121,21 +121,33 @@ psql $DATABASE_URL -f scripts/setup_db.sql
 
 ### 4. Run the System
 
-```bash
-# Run complete daily workflow
-# Windows:
-.\scripts\daily_run.ps1
+```powershell
+# Load environment variables (Windows)
+. .\scripts\load_env.ps1
 
-# Linux/macOS:
-./scripts/daily_run.sh
+# Run individual commands:
+go run ./cmd/orchestrator fetch-portfolio # Fetch holdings from Robinhood
+go run ./cmd/orchestrator fetch-market    # Fetch market data from Alpha Vantage
+go run ./cmd/orchestrator add-content     # Manually add creator content
+go run ./cmd/orchestrator add-batch       # Add multiple pieces of content
+go run ./cmd/orchestrator list-content    # View recent content
+go run ./cmd/orchestrator analyze         # Run full analysis pipeline
+go run ./cmd/orchestrator status          # Show database status
 
-# Or run individual commands:
-go run ./cmd/orchestrator fetch-market    # Fetch market data
-go run ./cmd/orchestrator fetch-social    # Fetch tweets
-go run ./cmd/orchestrator analyze         # Generate recommendations
+# Run complete daily workflow (fetches portfolio, market data, runs analysis)
+go run ./cmd/orchestrator run-all
 
-# Launch TUI
+# Launch TUI Dashboard (shows portfolio, recommendations, market status)
 go run ./cmd/tui
+```
+
+### 5. Setup Daily Automation (Windows)
+
+```powershell
+# Run as Administrator to create scheduled task
+.\scripts\setup_scheduler.ps1
+
+# This creates a Windows Task Scheduler task that runs at 7 AM daily
 ```
 
 ## Project Structure
@@ -225,9 +237,29 @@ psql postgresql://postgres:postgres@localhost:5432/athena
 ## Implementation Status
 
 - [x] Phase 1: Foundation (project structure, database, basic fetchers)
-- [ ] Phase 2: Analysis Engine (technical indicators, embeddings, sentiment)
-- [ ] Phase 3: Recommendation Engine (market regime, allocation, signals)
-- [ ] Phase 4: TUI & Orchestration (Bubble Tea UI, automation)
+- [x] Phase 2: Analysis Engine (technical indicators, embeddings, sentiment)
+- [x] Phase 3: Recommendation Engine (market regime, allocation, signals)
+- [x] Phase 4: TUI & Orchestration (Bubble Tea UI, automation)
+
+## CLI Commands
+
+| Command | Description |
+|---------|-------------|
+| `fetch-portfolio` | Fetch portfolio holdings from Robinhood |
+| `fetch-market` | Fetch market data from Alpha Vantage |
+| `fetch-social` | Fetch tweets from tracked creators (requires paid API) |
+| `add-content` | Manually add a piece of creator content |
+| `add-batch` | Add multiple pieces of content at once |
+| `list-content` | View recent creator content |
+| `analyze` | Run full analysis pipeline (indicators, embeddings, sentiment, recommendations) |
+| `run-all` | Execute complete daily workflow (portfolio + market + analysis) |
+| `status` | Show database record counts |
+
+## Known Limitations
+
+- **Twitter API**: Free tier no longer allows reading tweets (402 error). Use `add-content` for manual input.
+- **Technical Indicators**: Require 14+ days of market data for RSI, 50+ for SMA50, 200+ for SMA200.
+- **Python 3.13**: Use `psycopg>=3.1.0` and `pandas>=2.2.0` for compatibility.
 
 ## License
 

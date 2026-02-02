@@ -19,7 +19,7 @@ import argparse
 from datetime import datetime
 
 try:
-    import psycopg2
+    import psycopg
     from sentence_transformers import SentenceTransformer
 except ImportError as e:
     print(json.dumps({
@@ -39,7 +39,7 @@ def get_database_connection():
     db_url = os.getenv('DATABASE_URL')
     if not db_url:
         raise ValueError("DATABASE_URL environment variable is not set")
-    return psycopg2.connect(db_url)
+    return psycopg.connect(db_url)
 
 
 def load_model() -> SentenceTransformer:
@@ -63,26 +63,17 @@ def fetch_content_without_embeddings(limit: int = 100) -> list[tuple]:
     Returns:
         List of (id, content_text) tuples
     """
-    conn = get_database_connection()
-    cur = None
-    
-    try:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT id, content_text
-            FROM creator_content
-            WHERE embedding IS NULL
-            ORDER BY created_at DESC
-            LIMIT %s
-        """, (limit,))
-        
-        return cur.fetchall()
-        
-    finally:
-        if cur:
-            cur.close()
-        if conn:
-            conn.close()
+    with get_database_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, content_text
+                FROM creator_content
+                WHERE embedding IS NULL
+                ORDER BY created_at DESC
+                LIMIT %s
+            """, (limit,))
+            
+            return cur.fetchall()
 
 
 def store_embedding(content_id: int, embedding: list[float]) -> bool:
@@ -100,36 +91,24 @@ def store_embedding(content_id: int, embedding: list[float]) -> bool:
               file=sys.stderr)
         return False
     
-    conn = None
-    cur = None
-    
     try:
-        conn = get_database_connection()
-        cur = conn.cursor()
-        
-        # Format embedding as PostgreSQL vector
-        embedding_str = '[' + ','.join(str(x) for x in embedding) + ']'
-        
-        cur.execute("""
-            UPDATE creator_content
-            SET embedding = %s::vector
-            WHERE id = %s
-        """, (embedding_str, content_id))
-        
-        conn.commit()
-        return True
+        with get_database_connection() as conn:
+            with conn.cursor() as cur:
+                # Format embedding as PostgreSQL vector
+                embedding_str = '[' + ','.join(str(x) for x in embedding) + ']'
+                
+                cur.execute("""
+                    UPDATE creator_content
+                    SET embedding = %s::vector
+                    WHERE id = %s
+                """, (embedding_str, content_id))
+                
+                conn.commit()
+                return True
         
     except Exception as e:
         print(f"Error storing embedding for id {content_id}: {e}", file=sys.stderr)
-        if conn:
-            conn.rollback()
         return False
-        
-    finally:
-        if cur:
-            cur.close()
-        if conn:
-            conn.close()
 
 
 def generate_embeddings(model: SentenceTransformer, texts: list[str], batch_size: int = 32) -> list:

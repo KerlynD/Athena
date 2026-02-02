@@ -57,6 +57,10 @@ func main() {
 	command := os.Args[1]
 
 	switch command {
+	case "fetch-portfolio":
+		if err := fetchPortfolio(ctx); err != nil {
+			log.Fatalf("fetch-portfolio failed: %v", err)
+		}
 	case "fetch-market":
 		if err := fetchMarketData(ctx, db); err != nil {
 			log.Fatalf("fetch-market failed: %v", err)
@@ -64,6 +68,18 @@ func main() {
 	case "fetch-social":
 		if err := fetchSocialContent(ctx, db); err != nil {
 			log.Fatalf("fetch-social failed: %v", err)
+		}
+	case "add-content":
+		if err := addContent(ctx, db); err != nil {
+			log.Fatalf("add-content failed: %v", err)
+		}
+	case "add-batch":
+		if err := addContentBatch(ctx, db); err != nil {
+			log.Fatalf("add-batch failed: %v", err)
+		}
+	case "list-content":
+		if err := listContent(ctx, db, 20); err != nil {
+			log.Fatalf("list-content failed: %v", err)
 		}
 	case "analyze":
 		if err := runAnalysis(ctx, db); err != nil {
@@ -76,6 +92,25 @@ func main() {
 	case "status":
 		if err := showStatus(ctx, db); err != nil {
 			log.Fatalf("status failed: %v", err)
+		}
+	case "add-holding":
+		if err := addHolding(ctx, db); err != nil {
+			log.Fatalf("add-holding failed: %v", err)
+		}
+	case "import-holdings":
+		if len(os.Args) < 3 {
+			log.Fatalf("Usage: orchestrator import-holdings <csv-file>")
+		}
+		if err := importHoldingsCSV(ctx, db, os.Args[2]); err != nil {
+			log.Fatalf("import-holdings failed: %v", err)
+		}
+	case "clear-holdings":
+		if err := clearHoldings(ctx, db); err != nil {
+			log.Fatalf("clear-holdings failed: %v", err)
+		}
+	case "show-portfolio":
+		if err := showPortfolio(ctx, db); err != nil {
+			log.Fatalf("show-portfolio failed: %v", err)
 		}
 	default:
 		log.Printf("Unknown command: %s", command)
@@ -90,11 +125,21 @@ func printUsage() {
 	fmt.Println(`Usage: orchestrator <command>
 
 Commands:
-  fetch-market  Fetch market data from Alpha Vantage
-  fetch-social  Fetch creator content from Twitter/X
-  analyze       Run analysis and generate recommendations
-  run-all       Execute complete daily workflow
-  status        Show database status and counts`)
+  fetch-portfolio      Fetch portfolio holdings from Robinhood
+  fetch-market         Fetch market data from Alpha Vantage
+  
+  add-holding          Manually add/update a portfolio holding
+  import-holdings      Import holdings from CSV file
+  clear-holdings       Remove all holdings from database
+  show-portfolio       Display current portfolio
+
+  add-content          Manually add creator content for analysis
+  add-batch            Add multiple pieces of content at once
+  list-content         Show recent creator content
+
+  analyze              Run analysis and generate recommendations
+  run-all              Execute complete daily workflow
+  status               Show database status and counts`)
 }
 
 func validateEnv() error {
@@ -252,65 +297,32 @@ func fetchSocialContent(ctx context.Context, db *sql.DB) error {
 }
 
 func runAnalysis(ctx context.Context, db *sql.DB) error {
-	log.Println("=== Running Analysis ===")
-
-	// Phase 1: Just log that analysis will be implemented in Phase 2
-	// For now, we verify the data is in the database
-
-	// Count market data
-	var marketCount int
-	err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM market_data").Scan(&marketCount)
-	if err != nil {
-		log.Printf("Warning: could not count market data: %v", err)
-	} else {
-		log.Printf("Market data records: %d", marketCount)
-	}
-
-	// Count creator content
-	var contentCount int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM creator_content").Scan(&contentCount)
-	if err != nil {
-		log.Printf("Warning: could not count creator content: %v", err)
-	} else {
-		log.Printf("Creator content records: %d", contentCount)
-	}
-
-	// Count content without embeddings
-	var noEmbeddingCount int
-	err = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM creator_content WHERE embedding IS NULL").Scan(&noEmbeddingCount)
-	if err != nil {
-		log.Printf("Warning: could not count content without embeddings: %v", err)
-	} else {
-		log.Printf("Content needing embeddings: %d", noEmbeddingCount)
-	}
-
-	log.Println("Analysis pipeline ready - full implementation in Phase 2")
-	log.Println("Run Python scripts for technical indicators and embeddings:")
-	log.Println("  python services/analysis/indicators.py")
-	log.Println("  python services/analysis/embeddings.py")
-
-	return nil
+	return runFullAnalysis(ctx, db)
 }
 
 func runAll(ctx context.Context, db *sql.DB) error {
 	log.Println("=== Market Intelligence Daily Run ===")
 	log.Printf("Started at: %s", time.Now().Format(time.RFC3339))
 
-	// Step 1: Fetch market data
-	log.Println("\n--- Step 1/3: Fetching market data ---")
+	// Step 1: Fetch portfolio from Robinhood
+	log.Println("\n--- Step 1/3: Fetching portfolio ---")
+	if os.Getenv("ROBINHOOD_USERNAME") != "" {
+		if err := fetchPortfolio(ctx); err != nil {
+			log.Printf("Warning: portfolio fetch failed: %v", err)
+			// Continue anyway - other steps may still work
+		}
+	} else {
+		log.Println("Skipping portfolio fetch (ROBINHOOD_USERNAME not set)")
+	}
+
+	// Step 2: Fetch market data
+	log.Println("\n--- Step 2/3: Fetching market data ---")
 	if err := fetchMarketData(ctx, db); err != nil {
 		log.Printf("Warning: market data fetch failed: %v", err)
 		// Continue anyway - other steps may still work
 	}
 
-	// Step 2: Fetch social content
-	log.Println("\n--- Step 2/3: Fetching social content ---")
-	if err := fetchSocialContent(ctx, db); err != nil {
-		log.Printf("Warning: social content fetch failed: %v", err)
-		// Continue anyway
-	}
-
-	// Step 3: Run analysis
+	// Step 3: Run analysis (social content is added manually via add-content)
 	log.Println("\n--- Step 3/3: Running analysis ---")
 	if err := runAnalysis(ctx, db); err != nil {
 		return fmt.Errorf("run analysis: %w", err)

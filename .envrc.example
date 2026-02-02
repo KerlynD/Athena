@@ -1,0 +1,33 @@
+# Database (Supabase PostgreSQL)
+export DATABASE_URL="postgresql://postgres.xxx:password@aws-0-us-east-1.pooler.supabase.com:5432/postgres"
+
+# Alpha Vantage API (free tier: 25 requests/day)
+export ALPHAVANTAGE_API_KEY="your_api_key"
+
+# Twitter/X API (Note: Free tier no longer supports reading tweets - use manual content input)
+export TWITTER_BEARER_TOKEN="your_bearer_token"
+
+# Anthropic Claude API
+export ANTHROPIC_API_KEY="sk-ant-api03-xxx"
+
+# Robinhood Credentials
+export ROBINHOOD_USERNAME="your_email@example.com"
+export ROBINHOOD_PASSWORD="your_password"
+export ROBINHOOD_TOTP=""  # Optional: TOTP secret for 2FA
+export ROBINHOOD_ACCOUNT_TYPE="all"  # Options: 'all', 'roth', 'individual'
+
+# Monthly contribution budget (used for recommendations)
+export MONTHLY_CONTRIBUTION="1000"
+
+# Tracked tickers (comma-separated)
+export TRACKED_TICKERS="SPY,QQQ,DDOG,GOOG,NFLX,PLTR,AAPL,NVDA,AMZN,RIVN,MSFT,AMD,META,AMC,KO"
+
+# Creators to follow (comma-separated Twitter handles without @)
+export CREATORS="MobyInvest,carbonfinancex"
+
+# Logging
+export LOG_LEVEL="info"
+export LOG_FILE="logs/athena.log"
+
+# Performance
+export MAX_CONCURRENT_REQUESTS="5"
