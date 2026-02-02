@@ -1,0 +1,67 @@
+# Market Intelligence Aggregator - Docker Compose
+# For local development with PostgreSQL + pgvector
+#
+# Usage:
+#   docker-compose up -d        # Start services
+#   docker-compose logs -f      # View logs
+#   docker-compose down         # Stop services
+#   docker-compose down -v      # Stop and remove volumes
+
+version: '3.8'
+
+services:
+  # PostgreSQL with pgvector extension for local development
+  # Note: For production, use Supabase instead
+  postgres:
+    image: ankane/pgvector:latest
+    container_name: athena-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: athena
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../scripts/setup_db.sql:/docker-entrypoint-initdb.d/01_setup.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Go application (orchestrator + TUI)
+  # Build from project root
+  app:
+    build:
+      context: ..
+      dockerfile: deployments/Dockerfile
+    container_name: athena-app
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/athena?sslmode=disable
+      ALPHAVANTAGE_API_KEY: ${ALPHAVANTAGE_API_KEY}
+      TWITTER_BEARER_TOKEN: ${TWITTER_BEARER_TOKEN}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      ROBINHOOD_USERNAME: ${ROBINHOOD_USERNAME}
+      ROBINHOOD_PASSWORD: ${ROBINHOOD_PASSWORD}
+      ROBINHOOD_TOTP: ${ROBINHOOD_TOTP:-}
+      TRACKED_TICKERS: ${TRACKED_TICKERS:-SPY,QQQ,VOO,VTI}
+      CREATORS: ${CREATORS:-mobyinvest,carbonfinance}
+    volumes:
+      - ../:/app
+    working_dir: /app
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  default:
+    name: athena-network

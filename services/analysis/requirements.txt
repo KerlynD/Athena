@@ -1,0 +1,17 @@
+# Analysis Services Dependencies
+# Python 3.11+ required
+
+# Technical Indicators
+pandas==2.1.4
+pandas-ta==0.3.14b
+numpy==1.26.3
+
+# Embeddings Generation
+sentence-transformers==2.2.2
+torch>=2.0.0
+
+# Database
+psycopg2-binary==2.9.9
+
+# Utilities
+python-dotenv==1.0.0

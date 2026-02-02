@@ -1,0 +1,6 @@
+# Robinhood Portfolio Fetcher Dependencies
+# Python 3.11+ required
+
+robin-stocks==3.0.1
+psycopg2-binary==2.9.9
+python-dotenv==1.0.0
